@@ -460,10 +460,10 @@ class TestNordicMethods(unittest.TestCase):
         for sfile in sfiles:
             self.assertTrue(_is_sfile(os.path.join(self.testing_path, sfile)))
         self.assertFalse(_is_sfile(os.path.join(self.testing_path,
-                                               'Sfile_no_header')))
+                                                'Sfile_no_header')))
         self.assertFalse(_is_sfile(os.path.join(self.path, '..', '..',
-                                               'nlloc', 'tests', 'data',
-                                               'nlloc.hyp')))
+                                                'nlloc', 'tests', 'data',
+                                                'nlloc.hyp')))
 
 
 def test_similarity(event_1, event_2):
@@ -510,7 +510,8 @@ def test_similarity(event_1, event_2):
                     return False
                 if pick_1[key].channel_code[0] != pick_2[key].channel_code[0]:
                     return False
-                if pick_1[key].channel_code[-1] != pick_2[key].channel_code[-1]:
+                if pick_1[key].channel_code[-1] !=\
+                   pick_2[key].channel_code[-1]:
                     return False
     # Check amplitudes
     if not len(event_1.amplitudes) == len(event_2.amplitudes):
@@ -528,7 +529,8 @@ def test_similarity(event_1, event_2):
                     return False
                 if pick_1[key].channel_code[0] != pick_2[key].channel_code[0]:
                     return False
-                if pick_1[key].channel_code[-1] != pick_2[key].channel_code[-1]:
+                if pick_1[key].channel_code[-1] !=\
+                   pick_2[key].channel_code[-1]:
                     return False
     return True
 

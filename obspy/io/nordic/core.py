@@ -62,11 +62,11 @@ def _is_sfile(sfile):
     if not hasattr(sfile, "readline"):
         try:
             with open(sfile, 'r') as f:
-                head_line = __is_sfile(f)
+                head_line = _get_headline(f)
         except:
             return False
     else:
-        head_line = __is_sfile(sfile)
+        head_line = _get_headline(sfile)
     if head_line is not None:
         try:
             sfile_seconds = int(head_line[16:18])
@@ -86,7 +86,7 @@ def _is_sfile(sfile):
         return False
 
 
-def __is_sfile(f):
+def _get_headline(f):
     for i, line in enumerate(f):
         if i == 0 and len(line.rstrip()) != 80:
             return None
@@ -244,15 +244,10 @@ def _readheader(f):
     f.seek(0)
     # Base populate to allow for empty parts of file
     new_event = Event()
-    for i, line in enumerate(f):
-        if i == 0 and len(line.rstrip()) != 80:
-            raise NordicParsingError('s-file has a corrupt header, '
-                                     'not 80 char long')
-        if line[79] in [' ', '1']:
-            topline = line
-            break
-        if line[79] == '7':
-            raise NordicParsingError('No header found, corrupt s-file?')
+    topline = _get_headline(f=f)
+    if topline is None:
+        raise NordicParsingError('No header found, or incorrect '
+                                 'formatting: corrupt s-file')
     try:
         sfile_seconds = int(topline[16:18])
         if sfile_seconds == 60:
@@ -461,12 +456,9 @@ def read_nordic(select_file, return_wavnames=False):
         if len(line.rstrip()) > 0:
             event_str.append(line)
         elif len(event_str) > 0:
-            # Write to a temporary file then read from it
             tmp_sfile = io.StringIO()
-            # tmp_sfile = NamedTemporaryFile(mode='w', delete=False)
             for event_line in event_str:
                 tmp_sfile.write(event_line)
-            # tmp_sfile.close()
             new_event = _readheader(f=tmp_sfile)
             if return_wavnames:
                 wav_names.append(_readwavename(f=tmp_sfile))
