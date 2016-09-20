@@ -298,7 +298,8 @@ def _readheader(f):
     for index in [59, 67, 75]:
         if not topline[index].isspace():
             new_event.magnitudes.append(Magnitude())
-            new_event.magnitudes[-1].mag = _float_conv(topline[index - 3:index])
+            new_event.magnitudes[-1].mag = _float_conv(topline[index - 3:
+                                                               index])
             new_event.magnitudes[-1].magnitude_type = \
                 _nortoevmag(topline[index])
             new_event.magnitudes[-1].creation_info = \
@@ -334,8 +335,8 @@ def read_spectral_info(sfile):
     :param sfile: Sfile to read from.
 
     :returns:
-        list of dictionaries of spectral information, units as in seisan manual,
-        expect for logs which have been converted to floats.
+        list of dictionaries of spectral information, units as in seisan
+        manual, expect for logs which have been converted to floats.
     """
     with open(sfile, 'r') as f:
         spec_inf = _read_spectral_info(f=f)
@@ -405,7 +406,8 @@ def _read_spectral_info(f):
                 info['velocity'] = _float_conv(spec_str[40:46])
                 info['velocity_type'] = 'P'
             else:
-                warnings.warn('Only VP and VS spectral information implemented')
+                warnings.warn('Only VP and VS spectral information '
+                              'implemented')
             info['density'] = _float_conv(spec_str[48:54])
             info['Q0'] = _float_conv(spec_str[56:62])
             info['QA'] = _float_conv(spec_str[64:70])
@@ -531,9 +533,9 @@ def _read_picks(f, new_event):
             # Add 60 seconds on to the time, this copes with s-file
             # preference to write seconds in 1-60 rather than 0-59 which
             # datetime objects accept
-        if header[57:60] == 'AIN':
-            ain = _float_conv(line[57:60])
-        elif header[57:60] == 'SNR':
+        # if header[57:60] == 'AIN':
+        #     ain = _float_conv(line[57:60])
+        if header[57:60] == 'SNR':
             snr = _float_conv(line[57:60])
         else:
             warnings.warn('%s is not currently supported' % header[57:60])
@@ -763,8 +765,8 @@ def write_select(catalog, filename, userid='OBSP', evtype='L',
 
 
 def _write_nordic(event, filename, userid='OBSP', evtype='L', outdir='.',
-                 wavefiles='DUMMY', explosion=False,
-                 overwrite=True, string_io=None):
+                  wavefiles='DUMMY', explosion=False,
+                  overwrite=True, string_io=None):
     """
     Write an :class:`~obspy.core.event.Event` to a nordic formatted s-file.
 
@@ -810,8 +812,8 @@ def _write_nordic(event, filename, userid='OBSP', evtype='L', outdir='.',
                                  % userid)
     # Check that outdir exists
     if not os.path.isdir(outdir):
-        raise NordicParsingError('Out path does not exist, I will not create ' +
-                                 'this: ' + outdir)
+        raise NordicParsingError('Out path does not exist, I will not create' +
+                                 ' this: ' + outdir)
     # Check that evtype is one of L,R,D
     if evtype not in ['L', 'R', 'D']:
         raise NordicParsingError('Event type must be either L, R or D')
@@ -896,7 +898,8 @@ def _write_nordic(event, filename, userid='OBSP', evtype='L', outdir='.',
     for mag_ind in range(3):
         mag_info = {}
         try:
-            mag_info['mag'] = '{0:.1f}'.format(event.magnitudes[mag_ind].mag) or ''
+            mag_info['mag'] = '{0:.1f}'.format(event.
+                                               magnitudes[mag_ind].mag) or ''
             mag_info['type'] = _evmagtonor(event.magnitudes[mag_ind].
                                            magnitude_type) or ''
             if event.magnitudes[0].creation_info:
@@ -1175,7 +1178,6 @@ def station_to_seisan(station):
         Only works to the low-precision level at the moment (see seisan
         manual for explanation).
     """
-    #TODO: Hook into Inventory.write
     if station.latitude < 0:
         lat_str = 'S'
     else:
