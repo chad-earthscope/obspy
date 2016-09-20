@@ -18,7 +18,7 @@ from obspy.core.event import Event, Origin, Magnitude
 from obspy.core.event import EventDescription, CreationInfo
 from obspy.clients.fdsn import Client
 from obspy.io.nordic.core import _is_sfile, read_spectral_info, read_nordic
-from obspy.io.nordic.core import readwavename, blanksfile, write_nordic
+from obspy.io.nordic.core import readwavename, blanksfile, _write_nordic
 from obspy.io.nordic.core import nordpick, station_to_seisan, readheader
 from obspy.io.nordic.core import _int_conv, _readheader, _evmagtonor
 from obspy.io.nordic.core import write_select, NordicParsingError
@@ -44,9 +44,9 @@ class TestNordicMethods(unittest.TestCase):
         test_cat = Catalog()
         test_cat += test_event
         # Check the read-write s-file functionality
-        sfile = write_nordic(test_cat[0], filename=None, userid='TEST',
-                             evtype='L', outdir='.',
-                             wavefiles='test', explosion=True, overwrite=True)
+        sfile = _write_nordic(test_cat[0], filename=None, userid='TEST',
+                              evtype='L', outdir='.',
+                              wavefiles='test', explosion=True, overwrite=True)
         self.assertEqual(readwavename(sfile), ['test'])
         read_cat = Catalog()
         read_cat += read_nordic(sfile)
@@ -140,52 +140,52 @@ class TestNordicMethods(unittest.TestCase):
         test_cat.append(full_test_event())
         with self.assertRaises(NordicParsingError):
             # Raises error due to multiple events in catalog
-            write_nordic(test_cat, filename=None, userid='TEST',
-                         evtype='L', outdir='.',
-                         wavefiles='test', explosion=True,
-                         overwrite=True)
+            _write_nordic(test_cat, filename=None, userid='TEST',
+                          evtype='L', outdir='.',
+                          wavefiles='test', explosion=True,
+                          overwrite=True)
         with self.assertRaises(NordicParsingError):
             # Raises error due to too long userid
-            write_nordic(test_ev, filename=None, userid='TESTICLE',
-                         evtype='L', outdir='.',
-                         wavefiles='test', explosion=True,
-                         overwrite=True)
+            _write_nordic(test_ev, filename=None, userid='TESTICLE',
+                          evtype='L', outdir='.',
+                          wavefiles='test', explosion=True,
+                          overwrite=True)
         with self.assertRaises(NordicParsingError):
             # Raises error due to unrecognised event type
-            write_nordic(test_ev, filename=None, userid='TEST',
-                         evtype='U', outdir='.',
-                         wavefiles='test', explosion=True,
-                         overwrite=True)
+            _write_nordic(test_ev, filename=None, userid='TEST',
+                          evtype='U', outdir='.',
+                          wavefiles='test', explosion=True,
+                          overwrite=True)
         with self.assertRaises(NordicParsingError):
             # Raises error due to no output directory
-            write_nordic(test_ev, filename=None, userid='TEST',
-                         evtype='L', outdir='albatross',
-                         wavefiles='test', explosion=True,
-                         overwrite=True)
+            _write_nordic(test_ev, filename=None, userid='TEST',
+                          evtype='L', outdir='albatross',
+                          wavefiles='test', explosion=True,
+                          overwrite=True)
         invalid_origin = test_ev.copy()
         invalid_origin.origins = []
         with self.assertRaises(NordicParsingError):
-            write_nordic(invalid_origin, filename=None, userid='TEST',
-                         evtype='L', outdir='.',
-                         wavefiles='test', explosion=True,
-                         overwrite=True)
+            _write_nordic(invalid_origin, filename=None, userid='TEST',
+                          evtype='L', outdir='.',
+                          wavefiles='test', explosion=True,
+                          overwrite=True)
         invalid_origin = test_ev.copy()
         invalid_origin.origins[0].time = None
         with self.assertRaises(NordicParsingError):
-            write_nordic(invalid_origin, filename=None, userid='TEST',
-                         evtype='L', outdir='.',
-                         wavefiles='test', explosion=True,
-                         overwrite=True)
+            _write_nordic(invalid_origin, filename=None, userid='TEST',
+                          evtype='L', outdir='.',
+                          wavefiles='test', explosion=True,
+                          overwrite=True)
         # Write a near empty origin
         valid_origin = test_ev.copy()
         valid_origin.origins[0].latitude = None
         valid_origin.origins[0].longitude = None
         valid_origin.origins[0].depth = None
         try:
-            sfile = write_nordic(valid_origin, filename=None, userid='TEST',
-                                 evtype='L', outdir='.',
-                                 wavefiles='test', explosion=True,
-                                 overwrite=True)
+            sfile = _write_nordic(valid_origin, filename=None, userid='TEST',
+                                  evtype='L', outdir='.',
+                                  wavefiles='test', explosion=True,
+                                  overwrite=True)
             self.assertTrue(os.path.isfile(sfile))
         finally:
             os.remove(sfile)
@@ -226,15 +226,15 @@ class TestNordicMethods(unittest.TestCase):
         """
         test_event = Event()
         with self.assertRaises(NordicParsingError):
-            write_nordic(test_event, filename=None, userid='TEST', evtype='L',
-                         outdir='.', wavefiles='test')
+            _write_nordic(test_event, filename=None, userid='TEST', evtype='L',
+                          outdir='.', wavefiles='test')
         test_event.origins.append(Origin())
         with self.assertRaises(NordicParsingError):
-            write_nordic(test_event, filename=None, userid='TEST', evtype='L',
-                         outdir='.', wavefiles='test')
+            _write_nordic(test_event, filename=None, userid='TEST', evtype='L',
+                          outdir='.', wavefiles='test')
         test_event.origins[0].time = UTCDateTime()
-        test_sfile = write_nordic(test_event, filename=None, userid='TEST',
-                                  evtype='L', outdir='.', wavefiles='test')
+        test_sfile = _write_nordic(test_event, filename=None, userid='TEST',
+                                   evtype='L', outdir='.', wavefiles='test')
         self.assertTrue(os.path.isfile(test_sfile))
         os.remove(test_sfile)
 
@@ -317,10 +317,10 @@ class TestNordicMethods(unittest.TestCase):
         # Try to write the same event multiple times, but not overwrite
         sfiles = []
         for i in range(59):
-            sfiles.append(write_nordic(event=event, filename=None,
-                                       overwrite=False))
+            sfiles.append(_write_nordic(event=event, filename=None,
+                                        overwrite=False))
         with self.assertRaises(NordicParsingError):
-            write_nordic(event=event, filename=None, overwrite=False)
+            _write_nordic(event=event, filename=None, overwrite=False)
         for sfile in sfiles:
             os.remove(sfile)
 
@@ -390,11 +390,26 @@ class TestNordicMethods(unittest.TestCase):
 
     def test_write_select(self):
         cat = read_events()
-        write_select(cat, filename='select.out')
-        cat_back = read_events('select.out')
-        os.remove('select.out')
-        for event_1, event_2 in zip(cat, cat_back):
-            self.assertTrue(test_similarity(event_1=event_1, event_2=event_2))
+        try:
+            write_select(cat, filename='select.out')
+            cat_back = read_events('select.out')
+            for event_1, event_2 in zip(cat, cat_back):
+                self.assertTrue(test_similarity(event_1=event_1,
+                                                event_2=event_2))
+        finally:
+            os.remove('select.out')
+
+    def test_write_plugin(self):
+        cat = read_events()
+        cat.append(full_test_event())
+        try:
+            cat.write('select.out', format='nordic')
+            cat_back = read_events('select.out')
+            for event_1, event_2 in zip(cat, cat_back):
+                self.assertTrue(test_similarity(event_1=event_1,
+                                                event_2=event_2))
+        finally:
+            os.remove('select.out')
 
     def test_inaccurate_picks(self):
         testing_path = os.path.join(self.testing_path, 'bad_picks.sfile')
@@ -424,7 +439,7 @@ class TestNordicMethods(unittest.TestCase):
         spec_inf = read_spectral_info(testing_path)
         self.assertEqual(len(spec_inf), 5)
         # This should actually test that what we are reading in is correct.
-        average = [s for s in spec_inf if s['station'] == 'AVERAGE'][0]
+        average = spec_inf[('AVERAGE', '')]
         check_av = {u'channel': '', u'corner_freq': 5.97,  u'decay': 0.0,
                     u'moment': 12589254117.941662,  u'moment_mag': 0.7,
                     u'source_radius': 0.231,
@@ -463,7 +478,7 @@ def test_similarity(event_1, event_2):
     :return: bool
     """
     # Check origins
-    if not len(event_1.origins) == len(event_2.origins):
+    if len(event_1.origins) != len(event_2.origins):
         return False
     for ori_1, ori_2 in zip(event_1.origins, event_2.origins):
         for key in ori_1.keys():
@@ -471,33 +486,49 @@ def test_similarity(event_1, event_2):
                            "method_id", "origin_uncertainty", "depth_type",
                            "quality", "creation_info", "evaluation_mode",
                            "depth_errors", "time_errors"]:
-                if not ori_1[key] == ori_2[key]:
+                if ori_1[key] != ori_2[key]:
                     return False
             elif key == "arrivals":
-                if not len(ori_1[key]) == len(ori_2[key]):
+                if len(ori_1[key]) != len(ori_2[key]):
                     return False
                 for arr_1, arr_2 in zip(ori_1[key], ori_2[key]):
                     for arr_key in arr_1.keys():
                         if arr_key not in ["resource_id", "pick_id"]:
-                            if not arr_1[arr_key] == arr_2[arr_key]:
+                            if arr_1[arr_key] != arr_2[arr_key]:
                                 return False
     # Check picks
-    if not len(event_1.picks) == len(event_2.picks):
+    if len(event_1.picks) != len(event_2.picks):
         return False
     for pick_1, pick_2 in zip(event_1.picks, event_2.picks):
         # Assuming same ordering of picks...
         for key in pick_1.keys():
-            if not key == "resource_id":
-                if not pick_1[key] == pick_2[key]:
+            if key not in ["resource_id", "waveform_id"]:
+                if pick_1[key] != pick_2[key]:
+                    return False
+            elif key == "waveform_id":
+                if pick_1[key].station_code != pick_2[key].station_code:
+                    return False
+                if pick_1[key].channel_code[0] != pick_2[key].channel_code[0]:
+                    return False
+                if pick_1[key].channel_code[-1] != pick_2[key].channel_code[-1]:
                     return False
     # Check amplitudes
     if not len(event_1.amplitudes) == len(event_2.amplitudes):
+        print('amplitudes')
         return False
     for amp_1, amp_2 in zip(event_1.amplitudes, event_2.amplitudes):
         # Assuming same ordering of amplitudes
         for key in amp_1.keys():
-            if key not in ["resource_id", "pick_id"]:
+            if key not in ["resource_id", "pick_id", "waveform_id", "snr"]:
                 if not amp_1[key] == amp_2[key]:
+                    print(key)
+                    return False
+            elif key == "waveform_id":
+                if pick_1[key].station_code != pick_2[key].station_code:
+                    return False
+                if pick_1[key].channel_code[0] != pick_2[key].channel_code[0]:
+                    return False
+                if pick_1[key].channel_code[-1] != pick_2[key].channel_code[-1]:
                     return False
     return True
 
@@ -541,22 +572,26 @@ def full_test_event():
     test_event.picks.append(Pick(waveform_id=_waveform_id_1,
                                  phase_hint='IAML',
                                  polarity='undecidable',
-                                 time=UTCDateTime("2012-03-26") + 1.68))
+                                 time=UTCDateTime("2012-03-26") + 1.68,
+                                 evaluation_mode="manual"))
     # Need a second pick for coda
     test_event.picks.append(Pick(waveform_id=_waveform_id_1,
                                  onset='impulsive', phase_hint='PN',
                                  polarity='positive',
-                                 time=UTCDateTime("2012-03-26") + 1.68))
+                                 time=UTCDateTime("2012-03-26") + 1.68,
+                                 evaluation_mode="manual"))
     # Unassociated pick
     test_event.picks.append(Pick(waveform_id=_waveform_id_2,
                                  onset='impulsive', phase_hint='SG',
                                  polarity='undecidable',
-                                 time=UTCDateTime("2012-03-26") + 1.72))
+                                 time=UTCDateTime("2012-03-26") + 1.72,
+                                 evaluation_mode="manual"))
     # Unassociated pick
     test_event.picks.append(Pick(waveform_id=_waveform_id_2,
                                  onset='impulsive', phase_hint='PN',
                                  polarity='undecidable',
-                                 time=UTCDateTime("2012-03-26") + 1.62))
+                                 time=UTCDateTime("2012-03-26") + 1.62,
+                                 evaluation_mode="automatic"))
     # Test a generic local magnitude amplitude pick
     test_event.amplitudes.append(Amplitude(generic_amplitude=2.0,
                                            period=0.4,
@@ -565,7 +600,9 @@ def full_test_event():
                                            waveform_id=test_event.picks[0].
                                            waveform_id,
                                            unit='m',
-                                           magnitude_hint='Ml'))
+                                           magnitude_hint='ML',
+                                           category='point',
+                                           type='AML'))
     # Test a coda magnitude pick
     test_event.amplitudes.append(Amplitude(generic_amplitude=10,
                                            pick_id=test_event.picks[1].
@@ -577,6 +614,13 @@ def full_test_event():
                                            unit='s',
                                            magnitude_hint='Mc',
                                            snr=2.3))
+    test_event.origins[0].arrivals.append(Arrival(time_weight=0,
+                                                  phase=test_event.
+                                                  picks[1].
+                                                  phase_hint,
+                                                  pick_id=test_event.
+                                                  picks[1].
+                                                  resource_id))
     test_event.origins[0].arrivals.append(Arrival(time_weight=2,
                                                   phase=test_event.
                                                   picks[2].
@@ -599,6 +643,7 @@ def full_test_event():
                                                   time_residual=0.2,
                                                   distance=15,
                                                   azimuth=25))
+
     return test_event
 
 

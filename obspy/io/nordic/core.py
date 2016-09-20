@@ -27,6 +27,7 @@ from future.builtins import *  # NOQA @UnusedWildImport
 import warnings
 import datetime
 import os
+import io
 
 from obspy import UTCDateTime, read
 from obspy.core.event import Event, Origin, Magnitude, Comment, Catalog
@@ -104,6 +105,7 @@ def _int_conv(string):
     >>> _int_conv('12')
     12
     >>> _int_conv('')
+
     """
     try:
         intstring = int(string)
@@ -138,12 +140,13 @@ def _str_conv(number, rounded=False):
     If the int or float is None, returns empty string.
 
     >>> print(_str_conv(12.3))
-    '12.3'
+    12.3
     >>> print(_str_conv(12.34546, rounded=1))
-    '12.3'
+    12.3
     >>> print(_str_conv(None))
-    ' '
+    <BLANKLINE>
     >>> print(_str_conv(1123040))
+    11.2e5
     """
     if not number:
         return str(' ')
@@ -155,9 +158,19 @@ def _str_conv(number, rounded=False):
             divisor = 10 ** exponant
             string = '{0:.1f}'.format(number / divisor) + 'e' + str(exponant)
     elif rounded == 2 and isinstance(number, (float, int)):
-        string = '{0:.2f}'.format(number)
+        if number < 100000:
+            string = '{0:.2f}'.format(number)
+        else:
+            exponant = int('{0:.2E}'.format(number).split('E+')[-1]) - 1
+            divisor = 10 ** exponant
+            string = '{0:.2f}'.format(number / divisor) + 'e' + str(exponant)
     elif rounded == 1 and isinstance(number, (float, int)):
-        string = '{0:.1f}'.format(number)
+        if number < 100000:
+            string = '{0:.1f}'.format(number)
+        else:
+            exponant = int('{0:.2E}'.format(number).split('E+')[-1]) - 1
+            divisor = 10 ** exponant
+            string = '{0:.1f}'.format(number / divisor) + 'e' + str(exponant)
     else:
         return str(number)
     return string
@@ -168,11 +181,11 @@ def _evmagtonor(mag_type):
     Switch from obspy event magnitude types to seisan syntax.
 
     >>> print(_evmagtonor('mB'))
-    'b'
+    B
     >>> print(_evmagtonor('M'))
-    'W'
+    W
     >>> print(_evmagtonor('bob'))
-    ''
+    <BLANKLINE>
     """
     if mag_type == 'M':
         msg = ('Converting generic magnitude to moment magnitude')
@@ -191,9 +204,9 @@ def _nortoevmag(mag_type):
     Switch from nordic type magnitude notation to obspy event magnitudes.
 
     >>> print(_nortoevmag('b'))
-    'mB'
+    mB
     >>> print(_nortoevmag('bob'))
-    ''
+    <BLANKLINE>
     """
     if mag_type.upper() == "L":
         return "ML"
@@ -347,15 +360,15 @@ def _read_spectral_info(f):
     for line in f:
         if line[1:5] == 'SPEC':
             relevant_lines.append(line)
-    spec_inf = []
+    spec_inf = {}
     if not relevant_lines:
         return spec_inf
     for line in relevant_lines:
         spec_str = line.strip()
-        if spec_str[5:12] == 'AVERAGE':
+        if spec_str[5:12] in ['AVERAGE', 'STANDARD_DEVIATION']:
             info = {}
-            info['station'] = 'AVERAGE'
-            info['channel'] = ''
+            station = spec_str[5:12]
+            channel = ''
             info['moment'] = _float_conv(spec_str[16:22])
             if info['moment'] is not None:
                 info['moment'] = 10 ** info['moment']
@@ -368,45 +381,17 @@ def _read_spectral_info(f):
             info['decay'] = _float_conv(spec_str[56:62])
             info['window_length'] = _float_conv(spec_str[64:70])
             info['moment_mag'] = _float_conv(spec_str[72:78])
-            spec_inf.append(info)
+            spec_inf[(station, channel)] = info
             continue
-        if spec_str[5:7] == 'SD':
+        station = spec_str[4:9].strip()
+        channel = ''.join(spec_str[9:13].split())
+        try:
+            info = spec_inf[(station, channel)]
+        except KeyError:
             info = {}
-            info['station'] = 'STANDARD_DEVIATION'
-            info['channel'] = ''
-            info['moment'] = _float_conv(spec_str[16:22])
-            if info['moment'] is not None:
-                info['moment'] = 10 ** info['moment']
-            info['stress_drop'] = _float_conv(spec_str[24:30])
-            info['spectral_level'] = _float_conv(spec_str[32:38])
-            if info['spectral_level'] is not None:
-                info['spectral_level'] = 10 ** info['spectral_level']
-            info['corner_freq'] = _float_conv(spec_str[40:46])
-            info['source_radius'] = _float_conv(spec_str[47:54])
-            info['decay'] = _float_conv(spec_str[56:62])
-            info['window_length'] = _float_conv(spec_str[64:70])
-            info['moment_mag'] = _float_conv(spec_str[72:78])
-            spec_inf.append(info)
-            continue
-        #TODO: Remove the ugly stachan list, use a dict instead.
-        stachans = ['.'.join([i['station'], i['channel']])
-                    for i in spec_inf]
-        stachan = '.'.join([spec_str[4:9].strip(),
-                            ''.join(spec_str[9:13].split())])
-        if stachan in stachans:
-            info = [i for i in spec_inf if
-                    i['station'] == spec_str[4:9].strip() and
-                    i['channel'] == ''.join(spec_str[9:13].
-                                                     split())][0]
-            new_stachan = False
-        else:
-            info = {}
-            info['station'] = spec_str[4:9].strip()
-            info['channel'] = ''.join(spec_str[9:13].split())
-            #TODO: Just add it here rather than the True/False logic.
-            new_stachan = True
         if spec_str[14] == 'T':
-            info['starttime'] = origin_date + (int(spec_str[15:17]) * 3600) +\
+            info['starttime'] = origin_date + \
+                (int(spec_str[15:17]) * 3600) +\
                 (int(spec_str[17:19]) * 60) + int(spec_str[19:21])
             if info['starttime'] < event.origins[0].time:
                 # Wrong day, case of origin at end of day
@@ -419,12 +404,12 @@ def _read_spectral_info(f):
             elif spec_str[38:40] == 'VP':
                 info['velocity'] = _float_conv(spec_str[40:46])
                 info['velocity_type'] = 'P'
-            #TODO: Warn about missing other types?
+            else:
+                warnings.warn('Only VP and VS spectral information implemented')
             info['density'] = _float_conv(spec_str[48:54])
             info['Q0'] = _float_conv(spec_str[56:62])
             info['QA'] = _float_conv(spec_str[64:70])
         elif spec_str[14] == 'M':
-            #TODO: Warn about missing other types?
             info['moment'] = _float_conv(spec_str[16:22])
             if info['moment']:
                 info['moment'] = 10 ** info['moment']
@@ -437,12 +422,11 @@ def _read_spectral_info(f):
             info['decay'] = _float_conv(spec_str[56:62])
             info['window_length'] = _float_conv(spec_str[64:70])
             info['moment_mag'] = _float_conv(spec_str[72:78])
-        if new_stachan:
-            spec_inf.append(info)
+        spec_inf[(station, channel)] = info
     return spec_inf
 
 
-def read_nordic(select_file):
+def read_nordic(select_file, return_wavnames=False):
     """
     Read a catalog of events from a Nordic formatted select file.
 
@@ -450,13 +434,14 @@ def read_nordic(select_file):
 
     :type select_file: str
     :param select_file: Nordic formatted select.out file to open
+    :type return_wavnames: bool
+    :param return_wavnames:
+        If True, will return the names of the waveforms that the events
+        are associated with.
 
     :return: catalog of events
     :rtype: :class:`~obspy.core.event.event.Event`
     """
-    #TODO: Remove need for temporary file = use io.bytes or similar.
-    from tempfile import NamedTemporaryFile
-
     catalog = Catalog()
     event_str = []
     if not hasattr(select_file, "readline"):
@@ -469,22 +454,25 @@ def read_nordic(select_file):
                 f = str(select_file)
     else:
         f = select_file
+    wav_names = []
     for line in f:
         if len(line.rstrip()) > 0:
             event_str.append(line)
         elif len(event_str) > 0:
             # Write to a temporary file then read from it
-            tmp_sfile = NamedTemporaryFile(mode='w', delete=False)
+            tmp_sfile = io.StringIO()
+            # tmp_sfile = NamedTemporaryFile(mode='w', delete=False)
             for event_line in event_str:
                 tmp_sfile.write(event_line)
-            tmp_sfile.close()
-            with open(tmp_sfile.name) as fh:
-                new_event = _readheader(f=fh)
-                wav_names = _readwavename(f=fh)
-                catalog += _read_picks(f=fh, new_event=new_event)
-            os.remove(tmp_sfile.name)
+            # tmp_sfile.close()
+            new_event = _readheader(f=tmp_sfile)
+            if return_wavnames:
+                wav_names.append(_readwavename(f=tmp_sfile))
+            catalog += _read_picks(f=tmp_sfile, new_event=new_event)
             event_str = []
     f.close()
+    if return_wavnames:
+        return catalog, wav_names
     return catalog
 
 
@@ -514,13 +502,9 @@ def _read_picks(f, new_event):
         if len(line.rstrip('\n').rstrip('\r')) in [80, 79] and \
           line[79] in ' 4\n':
             pickline += [line]
-    amplitude_index = 0
-    for pick_index, line in enumerate(pickline):
+    for line in pickline:
         if line[18:28].strip() == '':  # If line is empty miss it
             continue
-        station = line[1:6].strip()
-        channel = line[6:8].strip()
-        network = 'NA'  # No network information provided in Sfile.
         weight = line[14]
         if weight == '_':
             phase = line[10:17]
@@ -547,113 +531,85 @@ def _read_picks(f, new_event):
             # Add 60 seconds on to the time, this copes with s-file
             # preference to write seconds in 1-60 rather than 0-59 which
             # datetime objects accept
-        coda = _int_conv(line[28:33])
-        amplitude = _float_conv(line[33:40])
-        peri = _float_conv(line[41:45])
-        azimuth = _float_conv(line[46:51])
-        # velocity = _float_conv(line[52:56])
-        # if header[57:60] == 'AIN':
-        #     ain = _float_conv(line[57:60])
-        if header[57:60] == 'SNR':
+        if header[57:60] == 'AIN':
+            ain = _float_conv(line[57:60])
+        elif header[57:60] == 'SNR':
             snr = _float_conv(line[57:60])
         else:
             warnings.warn('%s is not currently supported' % header[57:60])
-        azimuthres = _int_conv(line[60:63])
-        timeres = _float_conv(line[63:68])
         # finalweight = _int_conv(line[68:70])
-        distance = _float_conv(line[70:75])
-        caz = _int_conv(line[76:79])
         # Create a new obspy.event.Pick class for this pick
-        _waveform_id = WaveformStreamID(station_code=station,
-                                        channel_code=channel,
-                                        network_code=network)
-        new_event.picks.append(Pick(waveform_id=_waveform_id,
-                                    phase_hint=phase,
-                                    polarity=polarity, time=time))
-        #TODO: Try to remove the reliance on pick_index and amplitude_index etc.
+        _waveform_id = WaveformStreamID(station_code=line[1:6].strip(),
+                                        channel_code=line[6:8].strip(),
+                                        network_code='NA')
+        pick = Pick(waveform_id=_waveform_id, phase_hint=phase,
+                    polarity=polarity, time=time)
         try:
-            new_event.picks[pick_index].onset = onsets[line[9]]
+            pick.onset = onsets[line[9]]
         except KeyError:
             pass
         if line[15] == 'A':
-            new_event.picks[pick_index].evaluation_mode = 'automatic'
+            pick.evaluation_mode = 'automatic'
         else:
-            new_event.picks[pick_index].evaluation_mode = 'manual'
+            pick.evaluation_mode = 'manual'
         # Note these two are not always filled - velocity conversion not yet
         # implemented, needs to be converted from km/s to s/deg
         # if not velocity == 999.0:
             # new_event.picks[pick_index].horizontal_slowness = 1.0 / velocity
-        if azimuth is not None:
-            new_event.picks[pick_index].backazimuth = azimuth
-        del _waveform_id
+        if _float_conv(line[46:51]) is not None:
+            pick.backazimuth = _float_conv(line[46:51])
         # Create new obspy.event.Amplitude class which references above Pick
         # only if there is an amplitude picked.
-        if amplitude is not None:
-            new_event.amplitudes.append(Amplitude(generic_amplitude=amplitude,
-                                                  period=peri,
-                                                  pick_id=new_event.
-                                                  picks[pick_index].
-                                                  resource_id,
-                                                  waveform_id=new_event.
-                                                  picks[pick_index].
-                                                  waveform_id))
-            if new_event.picks[pick_index].phase_hint == 'IAML':
+        if _float_conv(line[33:40]) is not None:
+            _amplitude = Amplitude(generic_amplitude=_float_conv(line[33:40]),
+                                   period=_float_conv(line[41:45]),
+                                   pick_id=pick.resource_id,
+                                   waveform_id=pick.waveform_id)
+            if pick.phase_hint == 'IAML':
                 # Amplitude for local magnitude
-                new_event.amplitudes[amplitude_index].type = 'AML'
+                _amplitude.type = 'AML'
                 # Set to be evaluating a point in the trace
-                new_event.amplitudes[amplitude_index].category = 'point'
+                _amplitude.category = 'point'
                 # Default AML unit in seisan is nm (Page 139 of seisan
                 # documentation, version 10.0)
-                new_event.amplitudes[amplitude_index].generic_amplitude /= 1e9
-                new_event.amplitudes[amplitude_index].unit = 'm'
-                new_event.amplitudes[amplitude_index].magnitude_hint = 'ML'
+                _amplitude.generic_amplitude /= 1e9
+                _amplitude.unit = 'm'
+                _amplitude.magnitude_hint = 'ML'
             else:
                 # Generic amplitude type
-                new_event.amplitudes[amplitude_index].type = 'A'
+                _amplitude.type = 'A'
             if snr:
-                new_event.amplitudes[amplitude_index].snr = snr
-            amplitude_index += 1
-        elif coda is not None:
+                _amplitude.snr = snr
+            new_event.amplitudes.append(_amplitude)
+        elif _int_conv(line[28:33]) is not None:
             # Create an amplitude instance for code duration also
-            new_event.amplitudes.append(Amplitude(generic_amplitude=coda,
-                                                  pick_id=new_event.
-                                                  picks[pick_index].
-                                                  resource_id,
-                                                  waveform_id=new_event.
-                                                  picks[pick_index].
-                                                  waveform_id))
+            _amplitude = Amplitude(generic_amplitude=_int_conv(line[28:33]),
+                                   pick_id=pick.resource_id,
+                                   waveform_id=pick.waveform_id)
             # Amplitude for coda magnitude
-            new_event.amplitudes[amplitude_index].type = 'END'
+            _amplitude.type = 'END'
             # Set to be evaluating a point in the trace
-            new_event.amplitudes[amplitude_index].category = 'duration'
-            new_event.amplitudes[amplitude_index].unit = 's'
-            new_event.amplitudes[amplitude_index].magnitude_hint = 'Mc'
-            if snr:
-                new_event.amplitudes[amplitude_index].snr = snr
-            amplitude_index += 1
+            _amplitude.category = 'duration'
+            _amplitude.unit = 's'
+            _amplitude.magnitude_hint = 'Mc'
+            if snr is not None:
+                _amplitude.snr = snr
+            new_event.amplitudes.append(_amplitude)
         # Create new obspy.event.Arrival class referencing above Pick
-        new_event.origins[0].arrivals.append(Arrival(phase=new_event.
-                                                     picks[pick_index].
-                                                     phase_hint,
-                                                     pick_id=new_event.
-                                                     picks[pick_index].
-                                                     resource_id))
-        if weight is not None:
-            new_event.origins[0].arrivals[pick_index].time_weight =\
-                weight
-        if azimuthres is not None:
-            new_event.origins[0].arrivals[pick_index].backazimuth_residual =\
-                azimuthres
-        if timeres is not None:
-            new_event.origins[0].arrivals[pick_index].time_residual =\
-                timeres
-        if distance is not None:
-            new_event.origins[0].arrivals[pick_index].distance =\
-                distance
-        if caz is not None:
-            new_event.origins[0].arrivals[pick_index].azimuth =\
-                caz
-    # Write event to catalog object for ease of .write() method
+        if _float_conv(line[33:40]) is None:
+            arrival = Arrival(phase=pick.phase_hint, pick_id=pick.resource_id)
+            if weight is not None:
+                arrival.time_weight = weight
+            if _int_conv(line[60:63]) is not None:
+                arrival.backazimuth_residual = _int_conv(line[60:63])
+            if _float_conv(line[63:68]) is not None:
+                arrival.time_residual = _float_conv(line[63:68])
+            if _float_conv(line[70:75]) is not None:
+                arrival.distance = _float_conv(line[70:75])
+            if _int_conv(line[76:79]) is not None:
+                arrival.azimuth = _int_conv(line[76:79])
+            new_event.origins[0].arrivals.append(arrival)
+        new_event.picks.append(pick)
     return new_event
 
 
@@ -792,45 +748,50 @@ def write_select(catalog, filename, userid='OBSP', evtype='L',
         Waveforms to associate the events with, must be ordered in the same
          way as the events in the catalog.
     """
-    #TODO: Do not use temp files.
     if not wavefiles:
         wavefiles = ['DUMMY' for i in range(len(catalog))]
     with open(filename, 'w') as fout:
         for event, wavfile in zip(catalog, wavefiles):
-            sfile = write_nordic(event=event, filename=None, userid=userid,
-                                 evtype=evtype, wavefiles=wavfile)
-            with open(sfile, 'r') as f:
-                for line in f:
-                    fout.write(line)
+            select = io.StringIO()
+            _write_nordic(event=event, filename=None, userid=userid,
+                          evtype=evtype, wavefiles=wavfile,
+                          string_io=select)
+            select.seek(0)
+            for line in select:
+                fout.write(line)
             fout.write('\n')
-            os.remove(sfile)
 
 
-def write_nordic(event, filename, userid='OBSP', evtype='L', outdir='.',
+def _write_nordic(event, filename, userid='OBSP', evtype='L', outdir='.',
                  wavefiles='DUMMY', explosion=False,
-                 overwrite=True):
+                 overwrite=True, string_io=None):
     """
     Write an :class:`~obspy.core.event.Event` to a nordic formatted s-file.
 
     :type event: :class:`~obspy.core.event.event.Event`
     :param event: A single obspy event
     :type filename: str
-    :param filename: Filename to write to, can be None, and filename will be \
-        generated from the origin time in nordic format.
+    :param filename:
+        Filename to write to, can be None, and filename will be generated from
+        the origin time in nordic format.
     :type userid: str
     :param userid: Up to 4 character user ID
     :type evtype: str
-    :param evtype: Single character string to describe the event, either L, R \
-        or D.
+    :param evtype:
+        Single character string to describe the event, either L, R or D.
     :type outdir: str
     :param outdir: Path to directory to write to
     :type wavefiles: list
     :param wavefiles: Waveforms to associate the nordic file with
     :type explosion: bool
-    :param explosion: Note if the event is an explosion, will be marked by an \
-        E.
+    :param explosion:
+        Note if the event is an explosion, will be marked by an E.
     :type overwrite: bool
     :param overwrite: force to overwrite old files, defaults to False
+    :type string_io: io.StringIO
+    :param string_io:
+        If given, will write to the StringIO object in memory rather than to
+        the filename.
 
     :returns: str: name of nordic file written
 
@@ -931,90 +892,80 @@ def write_nordic(event, filename, userid='OBSP', evtype='L', outdir='.',
             timerms = '0.0'
     else:
         timerms = '0.0'
-    #TODO: Loop through these - maybe set up a dictionary first?
-    try:
-        mag_1 = '{0:.1f}'.format(event.magnitudes[0].mag) or ''
-        mag_1_type = _evmagtonor(event.magnitudes[0].magnitude_type) or ''
-        if event.magnitudes[0].creation_info:
-            mag_1_agency = event.magnitudes[0].creation_info.agency_id or ''
-        else:
-            mag_1_agency = ''
-    except IndexError:
-        mag_1 = ''
-        mag_1_type = ''
-        mag_1_agency = ''
-    try:
-        mag_2 = '{0:.1f}'.format(event.magnitudes[1].mag) or ''
-        mag_2_type = _evmagtonor(event.magnitudes[1].magnitude_type) or ''
-        if event.magnitudes[1].creation_info:
-            mag_2_agency = event.magnitudes[1].creation_info.agency_id or ''
-        else:
-            mag_2_agency = ''
-    except IndexError:
-        mag_2 = ''
-        mag_2_type = ''
-        mag_2_agency = ''
-    try:
-        mag_3 = '{0:.1f}'.format(event.magnitudes[2].mag) or ''
-        mag_3_type = _evmagtonor(event.magnitudes[2].magnitude_type) or ''
-        if event.magnitudes[2].creation_info:
-            mag_3_agency = event.magnitudes[2].creation_info.agency_id or ''
-        else:
-            mag_3_agency = ''
-    except IndexError:
-        mag_3 = ''
-        mag_3_type = ''
-        mag_3_agency = ''
+    conv_mags = []
+    for mag_ind in range(3):
+        mag_info = {}
+        try:
+            mag_info['mag'] = '{0:.1f}'.format(event.magnitudes[mag_ind].mag) or ''
+            mag_info['type'] = _evmagtonor(event.magnitudes[mag_ind].
+                                           magnitude_type) or ''
+            if event.magnitudes[0].creation_info:
+                mag_info['agency'] = event.magnitudes[mag_ind].\
+                                         creation_info.agency_id or ''
+            else:
+                mag_info['agency'] = ''
+        except IndexError:
+            mag_info['mag'] = ''
+            mag_info['type'] = ''
+            mag_info['agency'] = ''
+        conv_mags.append(mag_info)
     # Work out how many stations were used
     if len(event.picks) > 0:
         stations = [pick.waveform_id.station_code for pick in event.picks]
         ksta = str(len(set(stations)))
     else:
         ksta = ''
-    with open(sfile_path, 'w') as sfile:
-        sfile.write(' ' + str(evtime.year) + ' ' +
-                    str(evtime.month).rjust(2) +
-                    str(evtime.day).rjust(2) + ' ' +
-                    str(evtime.hour).rjust(2) +
-                    str(evtime.minute).rjust(2) + ' ' +
-                    str(evtime.second).rjust(2) + '.' +
-                    str(evtime.microsecond).ljust(1)[0:1] + ' ' +
-                    evtype.ljust(2) + lat.rjust(7) + ' ' + lon.rjust(7) +
-                    depth.rjust(5) + agency.rjust(5) + ksta.rjust(3) +
-                    timerms.rjust(4) +
-                    mag_1.rjust(4) + mag_1_type.rjust(1) +
-                    mag_1_agency[0:3].rjust(3) +
-                    mag_2.rjust(4) + mag_2_type.rjust(1) +
-                    mag_2_agency[0:3].rjust(3) +
-                    mag_3.rjust(4) + mag_3_type.rjust(1) +
-                    mag_3_agency[0:3].rjust(3) + '1' + '\n')
-        # Write line 2 of s-file
-        sfile.write(' ACTION:ARG ' + str(datetime.datetime.now().year)[2:4] + '-' +
-                    str(datetime.datetime.now().month).zfill(2) + '-' +
-                    str(datetime.datetime.now().day).zfill(2) + ' ' +
-                    str(datetime.datetime.now().hour).zfill(2) + ':' +
-                    str(datetime.datetime.now().minute).zfill(2) + ' OP:' +
-                    userid.ljust(4) + ' STATUS:'+'ID:'.rjust(18) +
-                    str(evtime.year) +
-                    str(evtime.month).zfill(2) +
-                    str(evtime.day).zfill(2) +
-                    str(evtime.hour).zfill(2) +
-                    str(evtime.minute).zfill(2) +
-                    str(evtime.second).zfill(2) +
-                    'I'.rjust(6) + '\n')
-        # Write line 3 of s-file
-        for wavefile in wavefiles:
-            sfile.write(' ' + os.path.basename(wavefile) +
-                        '6'.rjust(79-len(wavefile)) + '\n')
-        # Write final line of s-file
-        sfile.write(' STAT SP IPHASW D HRMM SECON CODA AMPLIT PERI AZIMU' +
-                    ' VELO AIN AR TRES W  DIS CAZ7\n')
-        # Now call the populate sfile function
-        if len(event.picks) > 0:
-            newpicks = '\n'.join(nordpick(event))
-            sfile.write(newpicks + '\n')
-            sfile.write('\n'.rjust(81))
-    return str(sfilename)
+    if not string_io:
+        sfile = open(sfile_path, 'w')
+    else:
+        sfile = string_io
+    sfile.write(' ' + str(evtime.year) + ' ' +
+                str(evtime.month).rjust(2) +
+                str(evtime.day).rjust(2) + ' ' +
+                str(evtime.hour).rjust(2) +
+                str(evtime.minute).rjust(2) + ' ' +
+                str(evtime.second).rjust(2) + '.' +
+                str(evtime.microsecond).ljust(1)[0:1] + ' ' +
+                evtype.ljust(2) + lat.rjust(7) + ' ' + lon.rjust(7) +
+                depth.rjust(5) + agency.rjust(5) + ksta.rjust(3) +
+                timerms.rjust(4) +
+                conv_mags[0]['mag'].rjust(4) + conv_mags[0]['type'].rjust(1) +
+                conv_mags[0]['agency'][0:3].rjust(3) +
+                conv_mags[1]['mag'].rjust(4) + conv_mags[1]['type'].rjust(1) +
+                conv_mags[1]['agency'][0:3].rjust(3) +
+                conv_mags[2]['mag'].rjust(4) + conv_mags[2]['type'].rjust(1) +
+                conv_mags[2]['agency'][0:3].rjust(3) + '1' + '\n')
+    # Write line 2 of s-file
+    sfile.write(' ACTION:ARG ' + str(datetime.datetime.now().year)[2:4] + '-' +
+                str(datetime.datetime.now().month).zfill(2) + '-' +
+                str(datetime.datetime.now().day).zfill(2) + ' ' +
+                str(datetime.datetime.now().hour).zfill(2) + ':' +
+                str(datetime.datetime.now().minute).zfill(2) + ' OP:' +
+                userid.ljust(4) + ' STATUS:'+'ID:'.rjust(18) +
+                str(evtime.year) +
+                str(evtime.month).zfill(2) +
+                str(evtime.day).zfill(2) +
+                str(evtime.hour).zfill(2) +
+                str(evtime.minute).zfill(2) +
+                str(evtime.second).zfill(2) +
+                'I'.rjust(6) + '\n')
+    # Write line 3 of s-file
+    for wavefile in wavefiles:
+        sfile.write(' ' + os.path.basename(wavefile) +
+                    '6'.rjust(79-len(wavefile)) + '\n')
+    # Write final line of s-file
+    sfile.write(' STAT SP IPHASW D HRMM SECON CODA AMPLIT PERI AZIMU' +
+                ' VELO AIN AR TRES W  DIS CAZ7\n')
+    # Now call the populate sfile function
+    if len(event.picks) > 0:
+        newpicks = '\n'.join(nordpick(event))
+        sfile.write(newpicks + '\n')
+        sfile.write('\n'.rjust(81))
+    if not string_io:
+        sfile.close()
+        return str(sfilename)
+    else:
+        return
 
 
 def nordpick(event):
@@ -1148,12 +1099,12 @@ def nordpick(event):
                 if amplitude.generic_amplitude is not None:
                     amp = amplitude.generic_amplitude
                     if amplitude.unit in ['m', 'm/s', 'm/(s*s)', 'm*s']:
-                        amp *= 10**9
+                        amp *= 1e9
                     # Otherwise we will assume that the amplitude is in counts
                 else:
                     amp = None
                 coda = ' '
-                if amplitude.magnitude_hint == 'Ml':
+                if amplitude.magnitude_hint.upper() == 'ML':
                     phase_hint = 'IAML'
                     impulsivity = ' '
             else:
@@ -1171,12 +1122,19 @@ def nordpick(event):
             weight = None  # this will return an empty string using _str_conv
         elif weight is not None:
             weight = int(weight)
+        if pick.evaluation_mode == "automatic":
+            eval_mode = "A"
+        elif pick.evaluation_mode == "manual":
+            eval_mode = " "
+        else:
+            warnings.warn("Evaluation mode %s is not supported"
+                          % pick.evaluation_mode)
         # Generate a print string and attach it to the list
         channel_code = pick.waveform_id.channel_code or '   '
         pick_strings.append(' ' + pick.waveform_id.station_code.ljust(5) +
                             channel_code[0] + channel_code[-1] +
                             ' ' + impulsivity + phase_hint.ljust(4) +
-                            _str_conv(weight).rjust(1) + ' ' +
+                            _str_conv(weight).rjust(1) + eval_mode +
                             polarity.rjust(1) + ' ' +
                             str(pick.time.hour).rjust(2) +
                             str(pick.time.minute).rjust(2) +
