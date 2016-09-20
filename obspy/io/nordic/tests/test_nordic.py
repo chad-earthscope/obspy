@@ -7,8 +7,6 @@ from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 from future.builtins import *  # NOQA @UnusedWildImport
 
-import numpy as np
-
 import inspect
 import io
 import os
@@ -19,10 +17,11 @@ from obspy.core.event import Pick, WaveformStreamID, Arrival, Amplitude
 from obspy.core.event import Event, Origin, Magnitude
 from obspy.core.event import EventDescription, CreationInfo
 from obspy.clients.fdsn import Client
-from obspy.io.nordic.core import is_sfile, read_spectral_info, read_nordic
+from obspy.io.nordic.core import _is_sfile, read_spectral_info, read_nordic
 from obspy.io.nordic.core import readwavename, blanksfile, write_nordic
-from obspy.io.nordic.core import nordpick, stationtoseisan, readheader
+from obspy.io.nordic.core import nordpick, station_to_seisan, readheader
 from obspy.io.nordic.core import _int_conv, _readheader, _evmagtonor
+from obspy.io.nordic.core import write_select, NordicParsingError
 from obspy.io.nordic.core import _float_conv, _nortoevmag, _str_conv
 
 
@@ -44,234 +43,181 @@ class TestNordicMethods(unittest.TestCase):
         # Add the event to a catalogue which can be used for QuakeML testing
         test_cat = Catalog()
         test_cat += test_event
-        # Write the catalog
-        test_cat.write("Test_catalog.xml", format='QUAKEML')
-        # Read and check
-        read_cat = read_events("Test_catalog.xml")
-        os.remove("Test_catalog.xml")
-        self.assertEqual(read_cat[0].resource_id, test_cat[0].resource_id)
-        for i in range(len(read_cat[0].picks)):
-            for key in read_cat[0].picks[i].keys():
-                # Ignore backazimuth errors and horizontal_slowness_errors
-                if key in ['backazimuth_errors', 'horizontal_slowness_errors']:
-                    continue
-                self.assertEqual(read_cat[0].picks[i][key],
-                                 test_cat[0].picks[i][key])
-        self.assertEqual(read_cat[0].origins[0].resource_id,
-                         test_cat[0].origins[0].resource_id)
-        self.assertEqual(read_cat[0].origins[0].time,
-                         test_cat[0].origins[0].time)
-        # Note that time_residual_RMS is not a quakeML format
-        self.assertEqual(read_cat[0].origins[0].longitude,
-                         test_cat[0].origins[0].longitude)
-        self.assertEqual(read_cat[0].origins[0].latitude,
-                         test_cat[0].origins[0].latitude)
-        self.assertEqual(read_cat[0].origins[0].depth,
-                         test_cat[0].origins[0].depth)
-        # Check magnitudes
-        self.assertEqual(read_cat[0].magnitudes, test_cat[0].magnitudes)
-        self.assertEqual(read_cat[0].event_descriptions,
-                         test_cat[0].event_descriptions)
-        # Check local magnitude amplitude
-        self.assertEqual(read_cat[0].amplitudes[0].resource_id,
-                         test_cat[0].amplitudes[0].resource_id)
-        self.assertEqual(read_cat[0].amplitudes[0].period,
-                         test_cat[0].amplitudes[0].period)
-        self.assertEqual(read_cat[0].amplitudes[0].unit,
-                         test_cat[0].amplitudes[0].unit)
-        self.assertEqual(read_cat[0].amplitudes[0].generic_amplitude,
-                         test_cat[0].amplitudes[0].generic_amplitude)
-        self.assertEqual(read_cat[0].amplitudes[0].pick_id,
-                         test_cat[0].amplitudes[0].pick_id)
-        self.assertEqual(read_cat[0].amplitudes[0].waveform_id,
-                         test_cat[0].amplitudes[0].waveform_id)
-        # Check coda magnitude pick
-        self.assertEqual(read_cat[0].amplitudes[1].resource_id,
-                         test_cat[0].amplitudes[1].resource_id)
-        self.assertEqual(read_cat[0].amplitudes[1].type,
-                         test_cat[0].amplitudes[1].type)
-        self.assertEqual(read_cat[0].amplitudes[1].unit,
-                         test_cat[0].amplitudes[1].unit)
-        self.assertEqual(read_cat[0].amplitudes[1].generic_amplitude,
-                         test_cat[0].amplitudes[1].generic_amplitude)
-        self.assertEqual(read_cat[0].amplitudes[1].pick_id,
-                         test_cat[0].amplitudes[1].pick_id)
-        self.assertEqual(read_cat[0].amplitudes[1].waveform_id,
-                         test_cat[0].amplitudes[1].waveform_id)
-        self.assertEqual(read_cat[0].amplitudes[1].magnitude_hint,
-                         test_cat[0].amplitudes[1].magnitude_hint)
-        self.assertEqual(read_cat[0].amplitudes[1].snr,
-                         test_cat[0].amplitudes[1].snr)
-        self.assertEqual(read_cat[0].amplitudes[1].category,
-                         test_cat[0].amplitudes[1].category)
-
         # Check the read-write s-file functionality
-        sfile = write_nordic(test_cat[0], userid='TEST',
+        sfile = write_nordic(test_cat[0], filename=None, userid='TEST',
                              evtype='L', outdir='.',
                              wavefiles='test', explosion=True, overwrite=True)
-        del read_cat
         self.assertEqual(readwavename(sfile), ['test'])
         read_cat = Catalog()
         read_cat += read_nordic(sfile)
         os.remove(sfile)
-        for i in range(len(read_cat[0].picks)):
-            self.assertEqual(read_cat[0].picks[i].time,
-                             test_cat[0].picks[i].time)
-            self.assertEqual(read_cat[0].picks[i].backazimuth,
-                             test_cat[0].picks[i].backazimuth)
-            self.assertEqual(read_cat[0].picks[i].onset,
-                             test_cat[0].picks[i].onset)
-            self.assertEqual(read_cat[0].picks[i].phase_hint,
-                             test_cat[0].picks[i].phase_hint)
-            self.assertEqual(read_cat[0].picks[i].polarity,
-                             test_cat[0].picks[i].polarity)
-            self.assertEqual(read_cat[0].picks[i].waveform_id.station_code,
-                             test_cat[0].picks[i].waveform_id.station_code)
-            self.assertEqual(read_cat[0].picks[i].waveform_id.channel_code[-1],
-                             test_cat[0].picks[i].waveform_id.channel_code[-1])
-        # assert read_cat[0].origins[0].resource_id ==\
-        #     test_cat[0].origins[0].resource_id
-        self.assertEqual(read_cat[0].origins[0].time,
-                         test_cat[0].origins[0].time)
+        read_ev = read_cat[0]
+        test_ev = test_cat[0]
+        for read_pick, test_pick in zip(read_ev.picks, test_ev.picks):
+            self.assertEqual(read_pick.time, test_pick.time)
+            self.assertEqual(read_pick.backazimuth, test_pick.backazimuth)
+            self.assertEqual(read_pick.onset, test_pick.onset)
+            self.assertEqual(read_pick.phase_hint, test_pick.phase_hint)
+            self.assertEqual(read_pick.polarity, test_pick.polarity)
+            self.assertEqual(read_pick.waveform_id.station_code,
+                             test_pick.waveform_id.station_code)
+            self.assertEqual(read_pick.waveform_id.channel_code[-1],
+                             test_pick.waveform_id.channel_code[-1])
+        # assert read_ev.origins[0].resource_id ==\
+        #     test_ev.origins[0].resource_id
+        self.assertEqual(read_ev.origins[0].time,
+                         test_ev.origins[0].time)
         # Note that time_residual_RMS is not a quakeML format
-        self.assertEqual(read_cat[0].origins[0].longitude,
-                         test_cat[0].origins[0].longitude)
-        self.assertEqual(read_cat[0].origins[0].latitude,
-                         test_cat[0].origins[0].latitude)
-        self.assertEqual(read_cat[0].origins[0].depth,
-                         test_cat[0].origins[0].depth)
-        self.assertEqual(read_cat[0].magnitudes[0].mag,
-                         test_cat[0].magnitudes[0].mag)
-        self.assertEqual(read_cat[0].magnitudes[1].mag,
-                         test_cat[0].magnitudes[1].mag)
-        self.assertEqual(read_cat[0].magnitudes[2].mag,
-                         test_cat[0].magnitudes[2].mag)
-        self.assertEqual(read_cat[0].magnitudes[0].creation_info,
-                         test_cat[0].magnitudes[0].creation_info)
-        self.assertEqual(read_cat[0].magnitudes[1].creation_info,
-                         test_cat[0].magnitudes[1].creation_info)
-        self.assertEqual(read_cat[0].magnitudes[2].creation_info,
-                         test_cat[0].magnitudes[2].creation_info)
-        self.assertEqual(read_cat[0].magnitudes[0].magnitude_type,
-                         test_cat[0].magnitudes[0].magnitude_type)
-        self.assertEqual(read_cat[0].magnitudes[1].magnitude_type,
-                         test_cat[0].magnitudes[1].magnitude_type)
-        self.assertEqual(read_cat[0].magnitudes[2].magnitude_type,
-                         test_cat[0].magnitudes[2].magnitude_type)
-        self.assertEqual(read_cat[0].event_descriptions,
-                         test_cat[0].event_descriptions)
-        # assert read_cat[0].amplitudes[0].resource_id ==\
-        #     test_cat[0].amplitudes[0].resource_id
-        self.assertEqual(read_cat[0].amplitudes[0].period,
-                         test_cat[0].amplitudes[0].period)
-        self.assertEqual(read_cat[0].amplitudes[0].snr,
-                         test_cat[0].amplitudes[0].snr)
+        self.assertEqual(read_ev.origins[0].longitude,
+                         test_ev.origins[0].longitude)
+        self.assertEqual(read_ev.origins[0].latitude,
+                         test_ev.origins[0].latitude)
+        self.assertEqual(read_ev.origins[0].depth,
+                         test_ev.origins[0].depth)
+        self.assertEqual(read_ev.magnitudes[0].mag,
+                         test_ev.magnitudes[0].mag)
+        self.assertEqual(read_ev.magnitudes[1].mag,
+                         test_ev.magnitudes[1].mag)
+        self.assertEqual(read_ev.magnitudes[2].mag,
+                         test_ev.magnitudes[2].mag)
+        self.assertEqual(read_ev.magnitudes[0].creation_info,
+                         test_ev.magnitudes[0].creation_info)
+        self.assertEqual(read_ev.magnitudes[1].creation_info,
+                         test_ev.magnitudes[1].creation_info)
+        self.assertEqual(read_ev.magnitudes[2].creation_info,
+                         test_ev.magnitudes[2].creation_info)
+        self.assertEqual(read_ev.magnitudes[0].magnitude_type,
+                         test_ev.magnitudes[0].magnitude_type)
+        self.assertEqual(read_ev.magnitudes[1].magnitude_type,
+                         test_ev.magnitudes[1].magnitude_type)
+        self.assertEqual(read_ev.magnitudes[2].magnitude_type,
+                         test_ev.magnitudes[2].magnitude_type)
+        self.assertEqual(read_ev.event_descriptions,
+                         test_ev.event_descriptions)
+        # assert read_ev.amplitudes[0].resource_id ==\
+        #     test_ev.amplitudes[0].resource_id
+        self.assertEqual(read_ev.amplitudes[0].period,
+                         test_ev.amplitudes[0].period)
+        self.assertEqual(read_ev.amplitudes[0].snr,
+                         test_ev.amplitudes[0].snr)
         # Check coda magnitude pick
         # Resource ids get overwritten because you can't have two the same in
         # memory
-        # self.assertEqual(read_cat[0].amplitudes[1].resource_id,
-        #                  test_cat[0].amplitudes[1].resource_id)
-        self.assertEqual(read_cat[0].amplitudes[1].type,
-                         test_cat[0].amplitudes[1].type)
-        self.assertEqual(read_cat[0].amplitudes[1].unit,
-                         test_cat[0].amplitudes[1].unit)
-        self.assertEqual(read_cat[0].amplitudes[1].generic_amplitude,
-                         test_cat[0].amplitudes[1].generic_amplitude)
+        # self.assertEqual(read_ev.amplitudes[1].resource_id,
+        #                  test_ev.amplitudes[1].resource_id)
+        self.assertEqual(read_ev.amplitudes[1].type,
+                         test_ev.amplitudes[1].type)
+        self.assertEqual(read_ev.amplitudes[1].unit,
+                         test_ev.amplitudes[1].unit)
+        self.assertEqual(read_ev.amplitudes[1].generic_amplitude,
+                         test_ev.amplitudes[1].generic_amplitude)
         # Resource ids get overwritten because you can't have two the same in
         # memory
-        # self.assertEqual(read_cat[0].amplitudes[1].pick_id,
-        #                  test_cat[0].amplitudes[1].pick_id)
-        self.assertEqual(read_cat[0].amplitudes[1].waveform_id.station_code,
-                         test_cat[0].amplitudes[1].waveform_id.station_code)
-        self.assertEqual(read_cat[0].amplitudes[1].waveform_id.channel_code,
-                         test_cat[0].amplitudes[1].
+        # self.assertEqual(read_ev.amplitudes[1].pick_id,
+        #                  test_ev.amplitudes[1].pick_id)
+        self.assertEqual(read_ev.amplitudes[1].waveform_id.station_code,
+                         test_ev.amplitudes[1].waveform_id.station_code)
+        self.assertEqual(read_ev.amplitudes[1].waveform_id.channel_code,
+                         test_ev.amplitudes[1].
                          waveform_id.channel_code[0] +
-                         test_cat[0].amplitudes[1].
+                         test_ev.amplitudes[1].
                          waveform_id.channel_code[-1])
-        self.assertEqual(read_cat[0].amplitudes[1].magnitude_hint,
-                         test_cat[0].amplitudes[1].magnitude_hint)
+        self.assertEqual(read_ev.amplitudes[1].magnitude_hint,
+                         test_ev.amplitudes[1].magnitude_hint)
         # snr is not supported in s-file
-        # self.assertEqual(read_cat[0].amplitudes[1].snr,
-        #                  test_cat[0].amplitudes[1].snr)
-        self.assertEqual(read_cat[0].amplitudes[1].category,
-                         test_cat[0].amplitudes[1].category)
-        del read_cat
+        # self.assertEqual(read_ev.amplitudes[1].snr,
+        #                  test_ev.amplitudes[1].snr)
+        self.assertEqual(read_ev.amplitudes[1].category,
+                         test_ev.amplitudes[1].category)
 
-        # Test a deliberate fail
+    def test_fail_writing(self):
+        """Test a deliberate fail."""
+        test_event = full_test_event()
+        # Add the event to a catalogue which can be used for QuakeML testing
+        test_cat = Catalog()
+        test_cat += test_event
+        test_ev = test_cat[0]
         test_cat.append(full_test_event())
-        with self.assertRaises(IOError):
+        with self.assertRaises(NordicParsingError):
             # Raises error due to multiple events in catalog
-            write_nordic(test_cat, userid='TEST',
+            write_nordic(test_cat, filename=None, userid='TEST',
                          evtype='L', outdir='.',
                          wavefiles='test', explosion=True,
                          overwrite=True)
-        with self.assertRaises(IOError):
+        with self.assertRaises(NordicParsingError):
             # Raises error due to too long userid
-            write_nordic(test_cat[0], userid='TESTICLE',
+            write_nordic(test_ev, filename=None, userid='TESTICLE',
                          evtype='L', outdir='.',
                          wavefiles='test', explosion=True,
                          overwrite=True)
-        with self.assertRaises(IOError):
+        with self.assertRaises(NordicParsingError):
             # Raises error due to unrecognised event type
-            write_nordic(test_cat[0], userid='TEST',
+            write_nordic(test_ev, filename=None, userid='TEST',
                          evtype='U', outdir='.',
                          wavefiles='test', explosion=True,
                          overwrite=True)
-        with self.assertRaises(IOError):
+        with self.assertRaises(NordicParsingError):
             # Raises error due to no output directory
-            write_nordic(test_cat[0], userid='TEST',
+            write_nordic(test_ev, filename=None, userid='TEST',
                          evtype='L', outdir='albatross',
                          wavefiles='test', explosion=True,
                          overwrite=True)
-        with self.assertRaises(IndexError):
-            invalid_origin = test_cat[0].copy()
-            invalid_origin.origins = []
-            write_nordic(invalid_origin, userid='TEST',
+        invalid_origin = test_ev.copy()
+        invalid_origin.origins = []
+        with self.assertRaises(NordicParsingError):
+            write_nordic(invalid_origin, filename=None, userid='TEST',
                          evtype='L', outdir='.',
                          wavefiles='test', explosion=True,
                          overwrite=True)
-        with self.assertRaises(ValueError):
-            invalid_origin = test_cat[0].copy()
-            invalid_origin.origins[0].time = None
-            write_nordic(invalid_origin, userid='TEST',
+        invalid_origin = test_ev.copy()
+        invalid_origin.origins[0].time = None
+        with self.assertRaises(NordicParsingError):
+            write_nordic(invalid_origin, filename=None, userid='TEST',
                          evtype='L', outdir='.',
                          wavefiles='test', explosion=True,
                          overwrite=True)
         # Write a near empty origin
-        valid_origin = test_cat[0].copy()
+        valid_origin = test_ev.copy()
         valid_origin.origins[0].latitude = None
         valid_origin.origins[0].longitude = None
         valid_origin.origins[0].depth = None
-        sfile = write_nordic(valid_origin, userid='TEST',
-                             evtype='L', outdir='.',
-                             wavefiles='test', explosion=True,
-                             overwrite=True)
-        self.assertTrue(os.path.isfile(sfile))
-        os.remove(sfile)
+        try:
+            sfile = write_nordic(valid_origin, filename=None, userid='TEST',
+                                 evtype='L', outdir='.',
+                                 wavefiles='test', explosion=True,
+                                 overwrite=True)
+            self.assertTrue(os.path.isfile(sfile))
+        finally:
+            os.remove(sfile)
 
     def test_blanksfile(self):
         st = read()
         testing_path = 'Temporary_wavefile'
         st.write(testing_path, format='MSEED')
-        sfile = blanksfile(testing_path, 'L', 'TEST', '.', overwrite=True)
+        sfile = blanksfile(testing_path, 'L', 'TEST', overwrite=True)
         self.assertTrue(os.path.isfile(sfile))
         os.remove(sfile)
-        sfile = blanksfile(testing_path, 'L', 'TEST', '.', overwrite=True,
+        sfile = blanksfile(testing_path, 'L', 'TEST', overwrite=True,
                            evtime=UTCDateTime())
         self.assertTrue(os.path.isfile(sfile))
         os.remove(sfile)
-        with self.assertRaises(IOError):
+        with self.assertRaises(NordicParsingError):
             # No wavefile
-            blanksfile('albert', 'L', 'TEST', '.', overwrite=True)
-        with self.assertRaises(IOError):
-            # No outdir
-            blanksfile(testing_path, 'L', 'TEST', 'albert', overwrite=True)
-        with self.assertRaises(IOError):
+            blanksfile('albert', 'L', 'TEST', overwrite=True)
+        with self.assertRaises(NordicParsingError):
             # USER ID too long
-            blanksfile(testing_path, 'L', 'TESTICLE', '.', overwrite=True)
-        with self.assertRaises(IOError):
+            blanksfile(testing_path, 'L', 'TESTICLE', overwrite=True)
+        with self.assertRaises(NordicParsingError):
             # Unknown event type
-            blanksfile(testing_path, 'U', 'TEST', '.', overwrite=True)
+            blanksfile(testing_path, 'U', 'TEST', overwrite=True)
+        # Check that it breaks when writing multiple versions
+        sfiles = []
+        for i in range(10):
+            sfiles.append(blanksfile(testing_path, 'L', 'TEST'))
+        with self.assertRaises(NordicParsingError):
+            blanksfile(testing_path, 'L', 'TEST')
+        for sfile in sfiles:
+            os.remove(sfile)
         os.remove(testing_path)
 
     def test_write_empty(self):
@@ -279,16 +225,16 @@ class TestNordicMethods(unittest.TestCase):
         Function to check that writing a blank event works as it should.
         """
         test_event = Event()
-        with self.assertRaises(IndexError):
-            write_nordic(test_event, userid='TEST', evtype='L',
+        with self.assertRaises(NordicParsingError):
+            write_nordic(test_event, filename=None, userid='TEST', evtype='L',
                          outdir='.', wavefiles='test')
         test_event.origins.append(Origin())
-        with self.assertRaises(ValueError):
-            write_nordic(test_event, userid='TEST', evtype='L',
+        with self.assertRaises(NordicParsingError):
+            write_nordic(test_event, filename=None, userid='TEST', evtype='L',
                          outdir='.', wavefiles='test')
         test_event.origins[0].time = UTCDateTime()
-        test_sfile = write_nordic(test_event, userid='TEST', evtype='L',
-                                  outdir='.', wavefiles='test')
+        test_sfile = write_nordic(test_event, filename=None, userid='TEST',
+                                  evtype='L', outdir='.', wavefiles='test')
         self.assertTrue(os.path.isfile(test_sfile))
         os.remove(test_sfile)
 
@@ -299,9 +245,9 @@ class TestNordicMethods(unittest.TestCase):
         """
         test_event = read_nordic(os.path.join(self.testing_path,
                                               'Sfile_no_location'))[0]
-        self.assertTrue(np.isnan(test_event.origins[0].latitude))
-        self.assertTrue(np.isnan(test_event.origins[0].longitude))
-        self.assertTrue(np.isnan(test_event.origins[0].depth))
+        self.assertFalse(test_event.origins[0].latitude)
+        self.assertFalse(test_event.origins[0].longitude)
+        self.assertFalse(test_event.origins[0].depth)
 
     def test_read_extra_header(self):
         testing_path = os.path.join(self.testing_path, 'Sfile_extra_header')
@@ -328,7 +274,7 @@ class TestNordicMethods(unittest.TestCase):
 
     def test_missing_header(self):
         # Check that a suitable error is raised
-        with self.assertRaises(IOError):
+        with self.assertRaises(NordicParsingError):
             readheader(os.path.join(self.testing_path, 'Sfile_no_header'))
 
     def test_reading_string_io(self):
@@ -353,12 +299,36 @@ class TestNordicMethods(unittest.TestCase):
         ref_cat = read_events(filename)
         self.assertTrue(test_similarity(cat[0], ref_cat[0]))
 
+    def test_corrupt_header(self):
+        filename = os.path.join(self.testing_path, '01-0411-15L.S201309')
+        tmp_file = os.path.join(self.testing_path, 'corrupt.sfile')
+        f = open(filename, 'r')
+        fout = open(tmp_file, 'w')
+        for line in f:
+            fout.write(line[0:78])
+        f.close()
+        fout.close()
+        with self.assertRaises(NordicParsingError):
+            readheader(tmp_file)
+        os.remove(tmp_file)
+
+    def test_multi_writing(self):
+        event = full_test_event()
+        # Try to write the same event multiple times, but not overwrite
+        sfiles = []
+        for i in range(59):
+            sfiles.append(write_nordic(event=event, filename=None,
+                                       overwrite=False))
+        with self.assertRaises(NordicParsingError):
+            write_nordic(event=event, filename=None, overwrite=False)
+        for sfile in sfiles:
+            os.remove(sfile)
+
     def test_mag_conv(self):
         """Check that we convert magnitudes as we should!"""
         magnitude_map = [('L', 'ML'),
-                         ('b', 'mB'),
-                         ('s', 'Ms'),
-                         ('S', 'MS'),
+                         ('B', 'mB'),
+                         ('S', 'Ms'),
                          ('W', 'MW'),
                          ('G', 'MbLg'),
                          ('C', 'Mc'),
@@ -369,13 +339,13 @@ class TestNordicMethods(unittest.TestCase):
 
     def test_str_conv(self):
         """Test the simple string conversions."""
-        self.assertEqual(_int_conv('albert'), 999)
-        self.assertEqual(_float_conv('albert'), 999.0)
+        self.assertEqual(_int_conv('albert'), None)
+        self.assertEqual(_float_conv('albert'), None)
         self.assertEqual(_str_conv('albert'), 'albert')
         self.assertEqual(_int_conv('1'), 1)
         self.assertEqual(_float_conv('1'), 1.0)
         self.assertEqual(_str_conv(1), '1')
-        self.assertEqual(_int_conv('1.0256'), 999)
+        self.assertEqual(_int_conv('1.0256'), None)
         self.assertEqual(_float_conv('1.0256'), 1.0256)
         self.assertEqual(_str_conv(1.0256), '1.0256')
 
@@ -393,19 +363,19 @@ class TestNordicMethods(unittest.TestCase):
                 ('NZ', 'WVZ', '*', '*', t1, t2)]
         inventory = client.get_stations_bulk(bulk, level="channel")
         for station in inventory[0]:
-            sta_str = stationtoseisan(station)
+            sta_str = station_to_seisan(station)
             self.assertEqual(len(sta_str), 27)
 
         for station in inventory[0]:
             station.latitude = abs(station.latitude)
             station.longitude = abs(station.longitude)
-            sta_str = stationtoseisan(station)
+            sta_str = station_to_seisan(station)
             self.assertEqual(len(sta_str), 27)
 
+        inventory = client.get_stations_bulk(bulk)
         with self.assertRaises(IOError):
-            inventory = client.get_stations_bulk(bulk)
             for station in inventory[0]:
-                sta_str = stationtoseisan(station)
+                sta_str = station_to_seisan(station)
 
     def test_read_event(self):
         """Test the wrapper."""
@@ -417,6 +387,14 @@ class TestNordicMethods(unittest.TestCase):
         testing_path = os.path.join(self.testing_path, 'select.out')
         catalog = read_nordic(testing_path)
         self.assertEqual(len(catalog), 50)
+
+    def test_write_select(self):
+        cat = read_events()
+        write_select(cat, filename='select.out')
+        cat_back = read_events('select.out')
+        os.remove('select.out')
+        for event_1, event_2 in zip(cat, cat_back):
+            self.assertTrue(test_similarity(event_1=event_1, event_2=event_2))
 
     def test_inaccurate_picks(self):
         testing_path = os.path.join(self.testing_path, 'bad_picks.sfile')
@@ -465,10 +443,10 @@ class TestNordicMethods(unittest.TestCase):
                   'round_len_undef.sfile', 'Sfile_extra_header',
                   'Sfile_no_location']
         for sfile in sfiles:
-            self.assertTrue(is_sfile(os.path.join(self.testing_path, sfile)))
-        self.assertFalse(is_sfile(os.path.join(self.testing_path,
+            self.assertTrue(_is_sfile(os.path.join(self.testing_path, sfile)))
+        self.assertFalse(_is_sfile(os.path.join(self.testing_path,
                                                'Sfile_no_header')))
-        self.assertFalse(is_sfile(os.path.join(self.path, '..', '..',
+        self.assertFalse(_is_sfile(os.path.join(self.path, '..', '..',
                                                'nlloc', 'tests', 'data',
                                                'nlloc.hyp')))
 
@@ -489,11 +467,11 @@ def test_similarity(event_1, event_2):
         return False
     for ori_1, ori_2 in zip(event_1.origins, event_2.origins):
         for key in ori_1.keys():
-            if key not in ["resource_id", "comments", "arrivals"]:
+            if key not in ["resource_id", "comments", "arrivals",
+                           "method_id", "origin_uncertainty", "depth_type",
+                           "quality", "creation_info", "evaluation_mode",
+                           "depth_errors", "time_errors"]:
                 if not ori_1[key] == ori_2[key]:
-                    print('Different %s' % key)
-                    print(ori_1[key])
-                    print(ori_2[key])
                     return False
             elif key == "arrivals":
                 if not len(ori_1[key]) == len(ori_2[key]):
@@ -502,9 +480,6 @@ def test_similarity(event_1, event_2):
                     for arr_key in arr_1.keys():
                         if arr_key not in ["resource_id", "pick_id"]:
                             if not arr_1[arr_key] == arr_2[arr_key]:
-                                print('Different %s' % arr_key)
-                                print(arr_1[arr_key])
-                                print(arr_2[arr_key])
                                 return False
     # Check picks
     if not len(event_1.picks) == len(event_2.picks):
@@ -514,9 +489,6 @@ def test_similarity(event_1, event_2):
         for key in pick_1.keys():
             if not key == "resource_id":
                 if not pick_1[key] == pick_2[key]:
-                    print('Different %s' % key)
-                    print(pick_1[key])
-                    print(pick_2[key])
                     return False
     # Check amplitudes
     if not len(event_1.amplitudes) == len(event_2.amplitudes):
@@ -526,9 +498,6 @@ def test_similarity(event_1, event_2):
         for key in amp_1.keys():
             if key not in ["resource_id", "pick_id"]:
                 if not amp_1[key] == amp_2[key]:
-                    print('Different %s' % key)
-                    print(amp_1[key])
-                    print(amp_2[key])
                     return False
     return True
 
@@ -539,7 +508,7 @@ def full_test_event():
     """
     test_event = Event()
     test_event.origins.append(Origin())
-    test_event.origins[0].time = UTCDateTime("2012-03-26") + 1
+    test_event.origins[0].time = UTCDateTime("2012-03-26") + 1.2
     test_event.event_descriptions.append(EventDescription())
     test_event.event_descriptions[0].text = 'LE'
     test_event.origins[0].latitude = 45.0

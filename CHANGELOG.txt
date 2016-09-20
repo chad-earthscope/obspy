@@ -2,6 +2,7 @@ master:
  - General:
    * Read support for Guralp Compressed Format (GCF) waveform data,
      obspy.io.gcf (see #1449)
+   * Add Nordic format (s-file) read/write (see #1517)
  - obspy.core:
    * Stream/Trace.write() can now autodetect file format from file extension
      (see #1321).
@@ -46,8 +47,6 @@ master:
      get_timing_and_data_quality() function obsolete which is thus
      deprecated and will be removed with the next release. The get_flags()
      function is also much faster. (see #1141)
- - obspy.io.nordic:
-   * Add Nordic format (s-file) read/write (see #1517)
  - obspy.scripts:
    * obspy-scan command line script now also plots and prints overlaps
      alongside gaps (see #1366)
