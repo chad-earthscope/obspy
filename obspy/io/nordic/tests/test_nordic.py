@@ -12,7 +12,7 @@ import io
 import os
 import unittest
 
-from obspy import read_events, Catalog, UTCDateTime, read
+from obspy import read_events, Catalog, UTCDateTime, read, read_inventory
 from obspy.core.event import Pick, WaveformStreamID, Arrival, Amplitude
 from obspy.core.event import Event, Origin, Magnitude
 from obspy.core.event import EventDescription, CreationInfo
@@ -364,17 +364,31 @@ class TestNordicMethods(unittest.TestCase):
         inventory = client.get_stations_bulk(bulk, level="channel")
         for station in inventory[0]:
             sta_str = station_to_seisan(station)
+            # Simple check that the length is correct.
             self.assertEqual(len(sta_str), 27)
 
         for station in inventory[0]:
-            station.latitude = abs(station.latitude)
-            station.longitude = abs(station.longitude)
-            sta_str = station_to_seisan(station)
-            self.assertEqual(len(sta_str), 27)
+            stat = station_to_seisan(station)
+            # Check that the lat and long are correct.
+            station_name = stat[1:6].strip()
+            lat = int(stat[6:8]) + (float(stat[8:13]) / 60)
+            if stat[13] == 'S':
+                lat *= -1
+            lon = int(stat[14:17]) + (float(stat[17:22]) / 60)
+            if stat[22] == 'W':
+                lon *= -1
+            elev = int(stat[23:])
+            self.assertEqual(station.code, station_name)
+            self.assertEqual(round(station.latitude, 2),
+                             round(lat, 2))
+            self.assertEqual(round(station.longitude, 2),
+                             round(lon, 2))
+            self.assertEqual(int(round(station.elevation)), elev)
 
         inventory = client.get_stations_bulk(bulk)
-        with self.assertRaises(IOError):
-            for station in inventory[0]:
+        # Check that it complains about trying to write the wrong type
+        for station in inventory[0]:
+            with self.assertRaises(IOError):
                 sta_str = station_to_seisan(station)
 
     def test_read_event(self):
@@ -464,6 +478,34 @@ class TestNordicMethods(unittest.TestCase):
         self.assertFalse(_is_sfile(os.path.join(self.path, '..', '..',
                                                 'nlloc', 'tests', 'data',
                                                 'nlloc.hyp')))
+
+    def test_write_inventory(self):
+        inv = read_inventory()
+        try:
+            inv.write('STATION0.HYP', format='SEISAN')
+            stats = []
+            with open('STATION0.HYP', 'r') as f:
+                for line in f:
+                    stats.append(line)
+            for stat in stats:
+                station = stat[1:6].strip()
+                lat = int(stat[6:8]) + (float(stat[8:13]) / 60)
+                if stat[13] == 'S':
+                    lat *= -1
+                lon = int(stat[14:17]) + (float(stat[17:22]) / 60)
+                if stat[22] == 'W':
+                    lon *= -1
+                elev = int(stat[23:])
+                input_station = [sta for net in inv
+                                 for sta in net if sta.code == station]
+                self.assertEqual(round(input_station[0].latitude, 2),
+                                 round(lat, 2))
+                self.assertEqual(round(input_station[0].longitude, 2),
+                                 round(lon, 2))
+                self.assertEqual(int(round(input_station[0].elevation)), elev)
+        finally:
+            pass
+            # os.remove('STATION0.HYP')
 
 
 def test_similarity(event_1, event_2):

@@ -90,7 +90,7 @@ def _get_headline(f):
     for i, line in enumerate(f):
         if i == 0 and len(line.rstrip()) != 80:
             return None
-        if line[79] in [' ', '1']:
+        if line[79] == '1':
             return line
     else:
         return None
@@ -245,7 +245,7 @@ def _readheader(f):
     # Base populate to allow for empty parts of file
     new_event = Event()
     topline = _get_headline(f=f)
-    if topline is None:
+    if not topline:
         raise NordicParsingError('No header found, or incorrect '
                                  'formatting: corrupt s-file')
     try:
@@ -1155,6 +1155,32 @@ def nordpick(event):
     return pick_strings
 
 
+def inventory_to_seisan(inventory, filename):
+    """
+    Write station co-ordinates from an inventory object to STATION0.HYP format.
+
+    :type inventory: :class:`~obspy.core.inventory.Inventory`
+    :param inventory: Inventory to write co-ordinated from.
+    :type filename: str
+    :param filename: Filename to output to, will overwrite file is present
+
+    .. note::
+
+        Currently Only works to the low-precision level (see seisan
+        manual for explanation).
+    """
+    written_stations = []
+    with open(filename, 'w') as f:
+        for network in inventory:
+            for station in network:
+                if station.code in written_stations:
+                    warnings.warn('Not writing duplicate stations for %s'
+                                  % station.code)
+                else:
+                    f.write(station_to_seisan(station=station) + '\n')
+                    written_stations.append(station.code)
+
+
 def station_to_seisan(station):
     """
     Convert obspy inventory to string formatted for Seisan STATION0.HYP file.
@@ -1167,7 +1193,7 @@ def station_to_seisan(station):
 
     .. note::
 
-        Only works to the low-precision level at the moment (see seisan
+        Currently only works to the low-precision level (see seisan
         manual for explanation).
     """
     if station.latitude < 0:
@@ -1196,9 +1222,9 @@ def station_to_seisan(station):
     lon = abs(station.longitude)
     lon_degree = int(lon)
     lon_decimal_minute = (lon - lon_degree) * 60
-    lat = ''.join([str(int(abs(lat_degree))),
+    lat = ''.join([str(abs(lat_degree)).rjust(2),
                    '{0:.2f}'.format(lat_decimal_minute).rjust(5)])
-    lon = ''.join([str(int(abs(lon_degree))),
+    lon = ''.join([str(abs(lon_degree)).rjust(3),
                    '{0:.2f}'.format(lon_decimal_minute).rjust(5)])
     station_str = ''.join(['  ', sta_str, lat, lat_str, lon, lon_str, elev])
     return station_str

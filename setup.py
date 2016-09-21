@@ -343,6 +343,7 @@ ENTRY_POINTS = {
         'SC3ML = obspy.io.seiscomp.sc3ml',
         'SACPZ = obspy.io.sac.sacpz',
         'CSS = obspy.io.css.station',
+        'SEISAN = obspy.io.nordic.core',
         'SHAPEFILE = obspy.io.shapefile.core',
         'STATIONTXT = obspy.io.stationtxt.core',
         'KML = obspy.io.kml.core'
@@ -361,6 +362,9 @@ ENTRY_POINTS = {
         ],
     'obspy.plugin.inventory.CSS': [
         'writeFormat = obspy.io.css.station:_write_css',
+        ],
+    'obspy.plugin.inventory.SEISAN': [
+        'writeFormat = obspy.io.nordic.core:inventory_to_seisan',
         ],
     'obspy.plugin.inventory.SHAPEFILE': [
         'writeFormat = obspy.io.shapefile.core:_write_shapefile',

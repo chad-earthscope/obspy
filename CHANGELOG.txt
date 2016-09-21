@@ -3,6 +3,7 @@ master:
    * Read support for Guralp Compressed Format (GCF) waveform data,
      obspy.io.gcf (see #1449)
    * Add Nordic format (s-file) read/write (see #1517)
+   * Add Inventory write support for SEISAN STATION0.HYP files.
  - obspy.core:
    * Stream/Trace.write() can now autodetect file format from file extension
      (see #1321).
