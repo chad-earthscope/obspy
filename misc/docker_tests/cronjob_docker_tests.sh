@@ -44,7 +44,7 @@ do
     PR=${PR_REPO_SHA[0]}
     REPO_SHA=${PR_REPO_SHA[1]}
     echo "##### RUNNING DOCKER TESTS FOR TARGET: ${REPO_SHA}"
-    bash run_obspy_tests.sh -t${REPO_SHA} -e"--pr-url=https://github.com/obspy/obspy/pull/${PR} --parse-issue-comments=${PR}"
+    bash run_obspy_tests.sh -t${REPO_SHA} -e"--pr-url=https://github.com/obspy/obspy/pull/${PR}"
 done
 # run docker tests on maintenance_1.0.x and master as well
 for BRANCH in obspy:maintenance_1.0.x obspy:master
